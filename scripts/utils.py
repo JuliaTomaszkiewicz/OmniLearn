@@ -2,6 +2,7 @@ import numpy as np
 import h5py as h5
 from sklearn.utils import shuffle
 import os
+import json
 import tensorflow as tf
 import gc
 import random
@@ -42,6 +43,33 @@ def load_pickle(folder, f):
     return history_dict
 
 
+# # OLD 
+# # turns the generated multiplicity back from its normalised value into an 
+# # integer count, so that generate can build the mask.
+# def revert_npart(npart, name="30"):
+#     # Reverse the preprocessing to recover the particle multiplicity
+#     stats = {
+#         "30": (29.03636, 2.7629626),
+#         "49": (21.66242333, 8.86935969),
+#         "50": (29.983576, 11.832739),
+#         "150": (49.398304, 20.772636),
+#         "279": (57.28675, 29.41252836),
+#         "846": (2265.99, 287.6999),
+#         "445": (282.4002, 35.806),
+#         "444": (287.66464, 43.422558),
+#         "400": (400, 1e-6),
+#         "3103": (2263.353, 282.1345),
+#         "9531": (2580.53451, 2496.26410),
+#     }
+
+#     mean, std = stats[name]
+
+#     return np.round(npart * std + mean).astype(np.int32)
+
+## BEGIN ADDED
+NPART_STATS = {}
+
+
 def revert_npart(npart, name="30"):
     # Reverse the preprocessing to recover the particle multiplicity
     stats = {
@@ -57,10 +85,17 @@ def revert_npart(npart, name="30"):
         "3103": (2263.353, 282.1345),
         "9531": (2580.53451, 2496.26410),
     }
-
+    stats.update(NPART_STATS)  # values from normalisation.json take precedence
+    if name not in stats:
+        raise KeyError(
+            f"No multiplicity statistics for padded length {name}. "
+            "Put the normalisation.json from preprocess_lhcHI.py next to the data files, "
+            "or add an entry to revert_npart."
+        )
     mean, std = stats[name]
-
     return np.round(npart * std + mean).astype(np.int32)
+
+## END ADDED
 
 
 class DataLoader:
@@ -342,118 +377,229 @@ class EicPythiaDataLoader(DataLoader):
 
         return new_part
 
+## RITA'S DATALOADER
+# class _lhcHIDataLoader(DataLoader):
+#     """based off jetnet. No jets, just events and particles
+#     edit: now avoids hardcoding the normalisation values. They are precomputed in preprocess_lhcHI.py and saved to json"""
 
+#     def __init__(self, path, batch_size=512, rank=0, size=1):
+#         super().__init__(path, batch_size, rank, size)
+
+#         # new structure:
+#         # data strucutre: - phi between 0 / pi/4
+#         # self.mean_part = [-0.013016753,  0.3921359 , -0.2258662 , -7.083e-12]
+#         # self.std_part = [0.51645607 , 0.22699146, 0.6673839,  0.22643998]
+
+#         # self.mean_jet = [0.7319277, -0.006706755, 5.0111713, 2259.2017, 286.33273]
+#         # self.std_jet  = [0.041557867, 0.04708675, 2.8808417, 286.4443, 43.40517]
+
+#         # self.part_names = ['$\eta_{rel}$',  '$\phi$', 'log($p_{Trel}$)', '$\phi_{rel}$']
+#         # self.jet_names = ['event $p_T$ [GeV]','event $\eta$','Centrality','Multiplicity','Nparts']
+
+#         # data structure: random approach
+#         # self.mean_part = [193424, 1131.1699 , 0.0013 , 3.1422, -0.2276, 0.]
+#         # self.std_part = [111673.6873 , 673.8408, 0.5152, 1.8223, 0.6693, 1.8215]
+
+#         # self.mean_jet = [0.7358 , 0.0006, 5.0122, 2263.2749 ,  193424,  5.3531, 11.2843]
+#         # self.std_jet  = [0.0165, 0.0334, 2.8838, 285.5522, 111673.7593, 68.0217, 67.6561]
+
+#         # self.part_names = ['Event number', 'Particle Id', '$\eta$',  '$\phi$', 'log($p_{Trel}$)', '$\phi_{rel}$']
+#         # self.jet_names = ['event $p_T$ [GeV]','event $\eta$','Centrality','Multiplicity','Event Number', 'Qx', 'Qy']
+
+#         # data structure: 3k approach
+#         # self.mean_part = [0, 3.146, -0.2275, 0 ]
+#         # self.std_part = [0.5152, 1.8211, 0.6693, 1.820]
+
+#         # self.mean_jet = [0.7359,2.8089, 10.221,  0.0001,5.00476,  2263.353]
+#         # self.std_jet  = [ 0.016421556 ,68.65441 ,67.93842 , 0.0331803 ,2.8877513  ,282.1345]
+
+#         # self.part_names = ['$\eta$',  '$\phi$', 'log($p_{Trel}$)', '$\phi_{rel}$']
+#         # self.jet_names = ['event $\eta$',  'Qx', 'Qy', 'Centrality','Multiplicity']
+
+#         self.mean_jet = [
+#             0.37158,  # mean_pT
+#             979.75843,  # sum_pT
+#             0.11923,  # Qx
+#             0.94407,  # Qy
+#             -0.00005,  # mean_eta
+#             0.01649,  # ep_angle
+#             9.63325,  # b
+#             614.26108,  # n_coll
+#             139.92031,  # n_part
+#             -0.00024,  # mean_phi
+#             2580.53451,  # n_particles
+#         ]
+
+#         self.mean_part = [
+#             0,  # phi_rel
+#             -0.48153,  # pT_rel
+#             0,  # eta_rel
+#             0.37967,  # pT
+#             0.00011,  # eta
+#             -0.00066,  # phi
+#         ]
+
+#         self.std_jet = [
+#             0.04027,
+#             957.18324,
+#             34.26750,
+#             34.34513,
+#             0.13243,
+#             0.90496,
+#             3.72294,
+#             730.62332,
+#             124.46002,
+#             0.13830,
+#             2496.26410,
+#         ]
+#         self.std_part = [1.81338, 1.06327, 1.16277, 0.42194, 1.16350, 1.81384]
+
+#         self.part_names = ["phi_rel", "pT_rel", "eta_rel", "pT", "eta", "phi"]
+#         self.jet_names = [
+#             "e_pT",
+#             "sum_pT",
+#             "Qx",
+#             "Qy",
+#             "eta_jet",
+#             "ep_angle",
+#             "b",
+#             "n_coll",
+#             "n_part",
+#             "e_phi",
+#             "n_particles",
+#         ]
+
+#         self.load_data(path, batch_size, rank, size)
+#         # the model is not conditioned
+#         self.y = np.zeros((self.X.shape[0], 1))
+#         if rank == 0:
+#             print(f"Loaded dataset with {self.num_part} particles")
+#         self.num_feat = self.X.shape[2]
+#         self.num_classes = self.y.shape[1]
+#         self.num_pad = 0
+#         self.steps_per_epoch = (
+#             None  # will pass none, otherwise needs to add repeat to tf data
+#         )
+#         self.files = [path]
+
+#     def revert_preprocess(self, x, mask):
+
+#         num_feat = x.shape[-1]
+#         new_part = mask[:, :, None] * (
+#             x[:, :, :num_feat] * self.std_part[:num_feat] + self.mean_part[:num_feat]
+#         )
+
+#         return new_part
+
+## BEGIN ADDED
 class lhcHIDataLoader(DataLoader):
-    """based off jetnet. No jets, just events and particles"""
+    """Heavy-ion events: event-level features + padded particle point clouds.
 
-    def __init__(self, path, batch_size=512, rank=0, size=1):
+    Normalisation constants are read from `normalisation.json` (written by
+    preprocess_lhcHI.py) in the same folder as the HDF5 file, or from `norm_path`
+    if given. If no file is found, the hard-coded Pb-Pb constants of Sadek et al.
+    (9531-particle dataset, 6 kinematic features) are used as a fallback.
+
+    Expected HDF5 content (see preprocess_lhcHI.py):
+      particle : (N_events, N_max, F)  physical values, zero-padded
+                 F = 6 kinematic [phi_rel, pT_rel, eta_rel, pT, eta, phi]
+                     (+ charge and one-hot species 'is_*' columns with --pid)
+      jet      : (N_events, 11)        physical values, n_particles last
+    """
+
+    # Fallback: original hard-coded Pb-Pb constants
+    DEFAULT_NORM = {
+        "part_names": ["phi_rel", "pT_rel", "eta_rel", "pT", "eta", "phi"],
+        "mean_part": [0.0, -0.48153, 0.0, 0.37967, 0.00011, -0.00066],
+        "std_part": [1.81338, 1.06327, 1.16277, 0.42194, 1.16350, 1.81384],
+        "jet_names": ["e_pT", "sum_pT", "Qx", "Qy", "eta_jet", "ep_angle",
+                      "b", "n_coll", "n_part", "e_phi", "n_particles"],
+        "mean_jet": [0.37158, 979.75843, 0.11923, 0.94407, -0.00005, 0.01649,
+                     9.63325, 614.26108, 139.92031, -0.00024, 2580.53451],
+        "std_jet": [0.04027, 957.18324, 34.26750, 34.34513, 0.13243, 0.90496,
+                    3.72294, 730.62332, 124.46002, 0.13830, 2496.26410],
+    }
+
+    def __init__(self, path, batch_size=512, rank=0, size=1, norm_path=None):
         super().__init__(path, batch_size, rank, size)
 
-        # new structure:
-        # data strucutre: - phi between 0 / pi/4
-        # self.mean_part = [-0.013016753,  0.3921359 , -0.2258662 , -7.083e-12]
-        # self.std_part = [0.51645607 , 0.22699146, 0.6673839,  0.22643998]
-
-        # self.mean_jet = [0.7319277, -0.006706755, 5.0111713, 2259.2017, 286.33273]
-        # self.std_jet  = [0.041557867, 0.04708675, 2.8808417, 286.4443, 43.40517]
-
-        # self.part_names = ['$\eta_{rel}$',  '$\phi$', 'log($p_{Trel}$)', '$\phi_{rel}$']
-        # self.jet_names = ['event $p_T$ [GeV]','event $\eta$','Centrality','Multiplicity','Nparts']
-
-        # data structure: random approach
-        # self.mean_part = [193424, 1131.1699 , 0.0013 , 3.1422, -0.2276, 0.]
-        # self.std_part = [111673.6873 , 673.8408, 0.5152, 1.8223, 0.6693, 1.8215]
-
-        # self.mean_jet = [0.7358 , 0.0006, 5.0122, 2263.2749 ,  193424,  5.3531, 11.2843]
-        # self.std_jet  = [0.0165, 0.0334, 2.8838, 285.5522, 111673.7593, 68.0217, 67.6561]
-
-        # self.part_names = ['Event number', 'Particle Id', '$\eta$',  '$\phi$', 'log($p_{Trel}$)', '$\phi_{rel}$']
-        # self.jet_names = ['event $p_T$ [GeV]','event $\eta$','Centrality','Multiplicity','Event Number', 'Qx', 'Qy']
-
-        # data structure: 3k approach
-        # self.mean_part = [0, 3.146, -0.2275, 0 ]
-        # self.std_part = [0.5152, 1.8211, 0.6693, 1.820]
-
-        # self.mean_jet = [0.7359,2.8089, 10.221,  0.0001,5.00476,  2263.353]
-        # self.std_jet  = [ 0.016421556 ,68.65441 ,67.93842 , 0.0331803 ,2.8877513  ,282.1345]
-
-        # self.part_names = ['$\eta$',  '$\phi$', 'log($p_{Trel}$)', '$\phi_{rel}$']
-        # self.jet_names = ['event $\eta$',  'Qx', 'Qy', 'Centrality','Multiplicity']
-
-        self.mean_jet = [
-            0.37158,  # mean_pT
-            979.75843,  # sum_pT
-            0.11923,  # Qx
-            0.94407,  # Qy
-            -0.00005,  # mean_eta
-            0.01649,  # ep_angle
-            9.63325,  # b
-            614.26108,  # n_coll
-            139.92031,  # n_part
-            -0.00024,  # mean_phi
-            2580.53451,  # n_particles
-        ]
-
-        self.mean_part = [
-            0,  # phi_rel
-            -0.48153,  # pT_rel
-            0,  # eta_rel
-            0.37967,  # pT
-            0.00011,  # eta
-            -0.00066,  # phi
-        ]
-
-        self.std_jet = [
-            0.04027,
-            957.18324,
-            34.26750,
-            34.34513,
-            0.13243,
-            0.90496,
-            3.72294,
-            730.62332,
-            124.46002,
-            0.13830,
-            2496.26410,
-        ]
-        self.std_part = [1.81338, 1.06327, 1.16277, 0.42194, 1.16350, 1.81384]
-
-        self.part_names = ["phi_rel", "pT_rel", "eta_rel", "pT", "eta", "phi"]
-        self.jet_names = [
-            "e_pT",
-            "sum_pT",
-            "Qx",
-            "Qy",
-            "eta_jet",
-            "ep_angle",
-            "b",
-            "n_coll",
-            "n_part",
-            "e_phi",
-            "n_particles",
-        ]
-
         self.load_data(path, batch_size, rank, size)
+        self.num_feat = self.X.shape[2]
+
+        # ---- normalisation constants
+        if norm_path is None:
+            norm_path = os.path.join(os.path.dirname(path), "normalisation.json")
+        if os.path.exists(norm_path):
+            with open(norm_path) as f:
+                norm = json.load(f)
+            source = norm_path
+        else:
+            norm = self.DEFAULT_NORM
+            source = "hard-coded Pb-Pb defaults (no normalisation.json found)"
+
+        self.part_names = list(norm["part_names"])
+        self.mean_part = np.asarray(norm["mean_part"], dtype=np.float32)
+        self.std_part = np.asarray(norm["std_part"], dtype=np.float32)
+        self.jet_names = list(norm["jet_names"])
+        self.mean_jet = np.asarray(norm["mean_jet"], dtype=np.float32)
+        self.std_jet = np.asarray(norm["std_jet"], dtype=np.float32)
+        self.norm = norm
+        self._check_consistency(source)
+
+        # register the multiplicity statistics for revert_npart (used in generate())
+        NPART_STATS[str(self.num_part)] = (float(self.mean_jet[-1]), float(self.std_jet[-1]))
+
+        # one-hot PID columns (empty without PID); used to clean up generated samples
+        self.pid_idx = [i for i, n in enumerate(self.part_names) if n.startswith("is_")]
+        self.charge_idx = self.part_names.index("charge") if "charge" in self.part_names else None
+
         # the model is not conditioned
         self.y = np.zeros((self.X.shape[0], 1))
-        if rank == 0:
-            print(f"Loaded dataset with {self.num_part} particles")
-        self.num_feat = self.X.shape[2]
         self.num_classes = self.y.shape[1]
         self.num_pad = 0
-        self.steps_per_epoch = (
-            None  # will pass none, otherwise needs to add repeat to tf data
-        )
+        self.steps_per_epoch = None  # will pass none, otherwise needs to add repeat to tf data
         self.files = [path]
 
-    def revert_preprocess(self, x, mask):
+        if rank == 0:
+            print(f"Loaded {path}: {self.X.shape[0]} events (this rank), "
+                  f"padded to {self.num_part} particles, {self.num_feat} particle features, "
+                  f"{self.num_jet} event features")
+            print(f"Normalisation from: {source}")
+            if self.pid_idx:
+                print(f"PID columns: {[self.part_names[i] for i in self.pid_idx]}")
 
+    def _check_consistency(self, source):
+        """Fail early if the constants do not match the file."""
+        problems = []
+        if len(self.mean_part) != self.num_feat or len(self.std_part) != self.num_feat:
+            problems.append(f"{len(self.mean_part)} particle constants for {self.num_feat} particle features")
+        if len(self.mean_jet) != self.num_jet or len(self.std_jet) != self.num_jet:
+            problems.append(f"{len(self.mean_jet)} event constants for {self.num_jet} event features")
+        if self.jet_names and self.jet_names[-1] != "n_particles":
+            problems.append("last event feature must be n_particles (used by generate())")
+        if np.any(self.std_part <= 0) or np.any(self.std_jet <= 0):
+            problems.append("non-positive standard deviation")
+        if problems:
+            raise ValueError(f"Normalisation from {source} does not match {self.path}: " + "; ".join(problems))
+
+    def revert_preprocess(self, x, mask):
+        """Undo the normalisation; for PID data, turn the generated one-hot columns
+        back into a valid one-hot vector (argmax) and round the charge."""
         num_feat = x.shape[-1]
         new_part = mask[:, :, None] * (
             x[:, :, :num_feat] * self.std_part[:num_feat] + self.mean_part[:num_feat]
         )
-
+        if self.pid_idx and max(self.pid_idx) < num_feat:
+            pid_cols = new_part[:, :, self.pid_idx]
+            onehot = np.zeros_like(pid_cols)
+            np.put_along_axis(onehot, np.argmax(pid_cols, axis=-1)[..., None], 1.0, axis=-1)
+            new_part[:, :, self.pid_idx] = onehot * mask[:, :, None]
+        if self.charge_idx is not None and self.charge_idx < num_feat:
+            new_part[:, :, self.charge_idx] = np.round(new_part[:, :, self.charge_idx]) * mask
         return new_part
+
+## END ADDED
+
 
 
 class JetNetDataLoader(DataLoader):
