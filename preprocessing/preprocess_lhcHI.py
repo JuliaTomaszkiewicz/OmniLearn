@@ -22,7 +22,7 @@ Feature definitions (matching the existing heavy-ion setup):
   pT_rel  = log(pT / <pT>)
   eta_rel = eta - <eta>
   Qx, Qy  = sum_i pT_i * cos(2 phi_i), sum_i pT_i * sin(2 phi_i)   (as in PET_lhcHI.psi2_loss_from_x0)
-  ep_angle in [-pi/2, pi/2): true reaction plane (default) or Q-vector event plane (--ep_source q_vector)
+  ep_angle in [-pi/2, pi/2)
   n_part  = fNPartProj + fNPartTarg
   n_particles = number of particles stored for the event (after cuts and --max_part)
 All event features are computed from the particles that are actually stored.
@@ -132,10 +132,8 @@ def compute_features(ev_df, pt_df, max_part=None, min_particles=1, use_pid=False
        pt_out : DataFrame, one row per stored particle, with 'row' (event row in ev_out),
                 'slot' (position in the padded array), 'fPdgCode' and the feature columns
     """
-    pt = pt_df.sort_values(["evt", "fPt"], ascending=[True, False], kind="stable").copy()
+    pt = pt_df.sort_values("evt", kind="stable").copy()
     pt["slot"] = pt.groupby("evt").cumcount()
-    if max_part is not None:
-        pt = pt[pt["slot"] < max_part]
 
     counts = pt.groupby("evt").size()
     good_evts = counts.index[counts >= min_particles]   # with enough particles
